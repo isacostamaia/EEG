@@ -13,7 +13,7 @@ from preprocessing.data_processing import get_clean_epochs, Lagger
 from preprocessing.data_processing_iterative import AltFilters
 
 
-def dash_peaks_tg_ntg(epochs_tg, epochs_ntg, subj=None):
+def dash_peaks_tg_ntg(epochs_tg, epochs_ntg, subj = None, session = None, p = None):
     """
         Creates dashboard for peak extraction from FRMS of average Target and FRMS of average NonTarget
     Params:
@@ -56,13 +56,16 @@ def dash_peaks_tg_ntg(epochs_tg, epochs_ntg, subj=None):
 
     topo_tg_plot = epochs_tg.average().plot_topomap(times= peaks_times_tg, ch_type="eeg", average=0.05, show = False)
     topo_ntg_plot = epochs_ntg.average().plot_topomap(times= peaks_times_ntg, ch_type="eeg", average=0.05, show = False)
-
     figs.append(topo_tg_plot)
     figs.append(topo_ntg_plot)
 
+    # 4 - Average Target ERP Response
+    avg_tg = epochs_tg["Target"].average().plot(show = False)
+    figs.append(avg_tg)
+
     mpls = [pn.pane.Matplotlib(f, dpi=144, tight=True) for f in figs]
 
-    title = pn.pane.Markdown("# FRMS of Average Target and Average Non Target subject #{}".format(subj), align="center")
+    title = pn.pane.Markdown("# FRMS of Average Target and Average Non Target subject #{}, session #{}, p Filter = {}".format(subj, session, p), align="center")
 
     # Arrange plots in a grid
     dashboard = pn.GridSpec(sizing_mode='stretch_both')
@@ -73,6 +76,7 @@ def dash_peaks_tg_ntg(epochs_tg, epochs_ntg, subj=None):
     dashboard[1, 1] = mpls[3]
     dashboard[2, 0] = mpls[4]
     dashboard[2, 1] = mpls[5]
+    dashboard[3, 0] = mpls[6]
     
     # Combine the title and dashboard
     layout = pn.Column(
@@ -85,7 +89,7 @@ def dash_peaks_tg_ntg(epochs_tg, epochs_ntg, subj=None):
     #verify if folder exists, create otherwise
     os.makedirs(dash_imgs_path, exist_ok=True)
     # Filepath for the image
-    image_path = os.path.join(dash_imgs_path, 'subj{}.html'.format(subj))
+    image_path = os.path.join(dash_imgs_path, 'subj{}sess{}p{}.html'.format(subj, session, p))
 
     layout.save(image_path)
     #layout.show()
@@ -124,10 +128,11 @@ def main_per_session():
     dataset=BI2013a()
     subj = 2
     session = "0"
+    p = 10
     epochs = get_clean_epochs(dataset, subjects_list=[subj])
     epochs = epochs[epochs.metadata.session.values == session]
 
-    alt_filter = AltFilters(epochs, p=4)
+    alt_filter = AltFilters(epochs, p = p)
     filtered_epochs, _ = alt_filter.fit_and_apply(class_="Target", plot_it=False)
     #Average filtered and lag-corrected target FRMS 
     lagger = Lagger(filtered_epochs["Target"])
@@ -136,7 +141,7 @@ def main_per_session():
     #Average filtered and lag-corrected non-target FRMS 
     lagger = Lagger(filtered_epochs["NonTarget"])
     lag_corrected_epochs_ntg = lagger.compute_and_correct_lags()
-    dash_peaks_tg_ntg(lag_corrected_epochs_tg, lag_corrected_epochs_ntg, subj="Subj {}, Session {}".format(subj,session))
+    dash_peaks_tg_ntg(lag_corrected_epochs_tg, lag_corrected_epochs_ntg, subj = subj, session = session, p = p)
 
 if __name__ == "__main__":
    # stuff only to run when not called via 'import' here

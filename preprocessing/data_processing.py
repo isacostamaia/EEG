@@ -1,3 +1,4 @@
+from doctest import run_docstring_examples
 import math
 import copy
 
@@ -332,3 +333,4 @@ class Lagger:
         self.lags_list, self.cond_hist = self.compute_lags(similarity="covariance", criteria_sim="greatest_local_max")
         corrected_epochs = self.correct_lags(self.lags_list)
         return corrected_epochs
+

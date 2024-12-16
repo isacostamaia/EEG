@@ -21,7 +21,7 @@ from preprocessing.data_processing_iterative import AltFilters
 
 
 
-def preprocess_epochs(epochs_subj, session = "0"):
+def preprocess_epochs(epochs_subj, p=4, session = "0"):
     """
     Given an epochs object from a subject and a session of interest, treat the data within that session.
     Returns:
@@ -36,7 +36,7 @@ def preprocess_epochs(epochs_subj, session = "0"):
     session_epochs = epochs_subj[epochs_subj.metadata.session.values == session]
     
     #preprocess
-    alt_filter = AltFilters(session_epochs, p=4)
+    alt_filter = AltFilters(session_epochs, p=p)
     del session_epochs
     filtered_epochs, _ = alt_filter.fit_and_apply(class_="Target", plot_it=False)
     del alt_filter
@@ -160,15 +160,13 @@ def pkl_to_df(db_name, subject, session, folder = os.path.join("..", "data", "wi
 
 def scaled_df(df):
     """
-        Given a df from a subject and session, returns X and y data
-        Params:
-  
+        Given a df from a subject and session, returns df with X ("ERP_scaled") and y ("Target") columns.
+
         Returns: feature-scaled df
             
     """
     #stack the flattened ERP into a feature matrix
     X = np.vstack(df['ERP'].values)  # Shape: (n_samples, 16)
-    y = df['Target'].values  # Class labels
     
     #normalize the feature matrix
     scaler = StandardScaler()
@@ -178,13 +176,74 @@ def scaled_df(df):
     return df
 
 
-def plot_roc_and_acc_time(df, db_name = None, subject = None, session = None):
+def plot_roc_and_acc_time(df, db_name = None, subject = None, session = None, plot_rocs = True):
 
-    """
+    """    
     Plot ROC curve for SVM model and its accuracy on time for a given subject in given a session. Prediction probabilities are
     the mean of prediction probabilities obtained in cross validation. These mean predictions are
     used for tracing the ROC curve.
     """
+
+    if db_name and subject and session:
+        title = "SVM ROC Curve " + db_name + " subject " + subject + " session " + session
+    else:
+        title = "SVM ROC Curve"
+
+
+    timeidx_groups = df.groupby("Timeidx").indices
+    acc_time = {}
+    for k,v in timeidx_groups.items():
+
+        #set up the SVM classifier and try to compensate class imbalance
+        svm = SVC(kernel='linear', probability=True, random_state=42, class_weight='balanced')
+        #cross-validation and AUC
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+        X = np.vstack(df["ERP_scaled"].values)[list(v)] #Get X at positions from ist time index
+        y = df["Target"].values[list(v)] #Get y at positions from ist time index
+
+        #cross val prediction and optimal accuracy soil computation
+        y_proba = cross_val_predict(svm, X, y, cv=cv, method='predict_proba', n_jobs = -1)[:, 1]
+        fpr, tpr, thresholds = roc_curve(y, y_proba)
+        optimal_idx = np.argmax(tpr - fpr)  # Maximizing Youden's index  (sensitivity + specificity - 1)
+        optimal_threshold = thresholds[optimal_idx]
+
+        #apply the optimal threshold
+        y_pred_custom = (y_proba >= optimal_threshold).astype(int)
+        #timeidx accuracy
+        acc_time[k] = (y == y_pred_custom).mean()
+
+        if plot_rocs: 
+            #plot roc curve
+            roc_auc = auc(fpr, tpr)
+            plt.figure(figsize=(8, 6))
+            plt.plot(fpr, tpr, color='blue', lw=2, label=f"AUC = {roc_auc:.2f}")
+            plt.plot([0, 1], [0, 1], color='gray', linestyle='--')
+            plt.xlabel("False Positive Rate")
+            plt.ylabel("True Positive Rate")
+            plt.title(title)
+            plt.legend(loc="lower right")
+            plt.grid()
+            plt.show()
+
+
+    times = np.array([int(np.mean(list(l))) for l in list(acc_time.keys())])
+    #target and non-target
+    plt.figure(figsize=(12,3))
+    plt.plot(epochs_subj.times[times]*1e3, list(acc_time.values()), color='blue', lw=2)
+    plt.xlabel("ms")
+    plt.ylabel("Accuracy")
+    plt.title("Accuracy on time for all samples")
+    plt.grid()
+    plt.show()
+
+
+
+    """    
+
+    Plot ROC curve for SVM model and its accuracy on time for a given subject in given a session. Prediction probabilities are
+    the mean of prediction probabilities obtained in cross validation. These mean predictions are
+    used for tracing the ROC curve.
 
     if db_name and subject and session:
         title = "SVM ROC Curve " + db_name + " subject " + subject + " session " + session
@@ -236,6 +295,8 @@ def plot_roc_and_acc_time(df, db_name = None, subject = None, session = None):
     plt.title("Accuracy on time for all samples")
     plt.grid()
     plt.show()
+
+    """
 
 
 #%%
@@ -243,70 +304,72 @@ if __name__ == "__main__":
     # stuff only to run when not called via 'import' here
 
     dataset = BI2013a()
-    subject = "2"
+    db_name = 'BI2013a'
+    subject = "1"
     epochs_subj = get_clean_epochs(dataset, subjects_list = [int(subject)])
-    #preprocess and extract data
+    #preprocess and extract data from a single session
     session = "0"
-    epochs_tg, epochs_ntg = preprocess_epochs(epochs_subj, 
-                                            subject = subject, 
-                                            session = session)
-    df = extract_window_mean(epochs_tg, epochs_ntg, t_interval = 30, step = 3, save = False, db_name = "db")
+    p = 4
+    epochs_tg, epochs_ntg = preprocess_epochs(epochs_subj, session = session)
+    df = extract_window_mean(epochs_tg, epochs_ntg, t_interval = 30, step = 3, save = False, db_name = db_name)
     #get features 
     df = scaled_df(df)
-
-    db_name = 'BI2013a'
 
     #plot ROC ang get optimal threshold
     #svm_opt_threshold  = plot_roc_and_acc_time(df, db_name = db_name, subject = subject, session = session)
     
-
-
-    """
+    """    
     Plot ROC curve for SVM model and its accuracy on time for a given subject in given a session. Prediction probabilities are
     the mean of prediction probabilities obtained in cross validation. These mean predictions are
     used for tracing the ROC curve.
     """
-
+    roc_title = "SVM ROC Curve"
     if db_name and subject and session:
-        title = "SVM ROC Curve " + db_name + " subject " + subject + " session " + session
+        spec =  db_name + " subject " + subject + " session " + session + " #Filtercomponents = " + str(p)
     else:
-        title = "SVM ROC Curve"
-    
-    X, y = np.vstack(df["ERP_scaled"].values), df["Target"].values
+        spec = ""
 
-    #set up the SVM classifier and try to compensate class imbalance
-    svm = SVC(kernel='linear', probability=True, random_state=42, class_weight='balanced')
+    roc_title = roc_title + spec
 
-    #cross-validation and AUC
-    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-    y_proba = cross_val_predict(svm, X, y, cv=cv, method='predict_proba', n_jobs = -1)[:, 1]
-    fpr, tpr, thresholds = roc_curve(y, y_proba)
-    optimal_idx = np.argmax(tpr - fpr)  # Maximizing Youden's index  (sensitivity + specificity - 1)
-    optimal_threshold = thresholds[optimal_idx]
-    roc_auc = auc(fpr, tpr)
 
-    #plot AUC curve
-    plt.figure(figsize=(8, 6))
-    plt.plot(fpr, tpr, color='blue', lw=2, label=f"AUC = {roc_auc:.2f}")
-    plt.plot([0, 1], [0, 1], color='gray', linestyle='--')
-    plt.xlabel("False Positive Rate")
-    plt.ylabel("True Positive Rate")
-    plt.title(title)
-    plt.legend(loc="lower right")
-    plt.grid()
-    plt.show()
-    #apply the optimal threshold
-    y_pred_custom = (y_proba >= optimal_threshold).astype(int)
-    #print general accuracy
-    acc = (y == y_pred_custom).mean()
-    print("global accuracy: ", acc)
+
 
     timeidx_groups = df.groupby("Timeidx").indices
     acc_time = {}
     for k,v in timeidx_groups.items():
-        pred_timeidx = y_pred_custom[list(v)]
-        label_timeidx = y[list(v)]
-        acc_time[k] = (pred_timeidx == label_timeidx).mean()
+
+        #set up the SVM classifier and try to compensate class imbalance
+        svm = SVC(kernel='linear', probability=True, random_state=42) #, class_weight='balanced'
+        #cross-validation and AUC
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+        X = np.vstack(df["ERP_scaled"].values)[list(v)] #Get X at positions from ist time index
+        y = df["Target"].values[list(v)] #Get y at positions from ist time index
+
+        #cross val prediction and optimal accuracy soil computation
+        y_proba = cross_val_predict(svm, X, y, cv=cv, method='predict_proba', n_jobs = -1)[:, 1]
+        fpr, tpr, thresholds = roc_curve(y, y_proba)
+        optimal_idx = np.argmax(tpr - fpr)  # Maximizing Youden's index  (sensitivity + specificity - 1)
+        optimal_threshold = thresholds[optimal_idx]
+
+        #apply the optimal threshold
+        y_pred_custom = (y_proba >= optimal_threshold).astype(int)
+        #timeidx accuracy
+        acc_time[k] = (y == y_pred_custom).mean()
+
+        if True: 
+            #plot roc curve
+            roc_auc = auc(fpr, tpr)
+            plt.figure(figsize=(8, 6))
+            plt.plot(fpr, tpr, color='blue', lw=2, label=f"AUC = {roc_auc:.2f}")
+            plt.plot([0, 1], [0, 1], color='gray', linestyle='--')
+            plt.xlabel("False Positive Rate")
+            plt.ylabel("True Positive Rate")
+            plt.title(roc_title)
+            plt.legend(loc="lower right")
+            plt.grid()
+            plt.show()
+
 
     times = np.array([int(np.mean(list(l))) for l in list(acc_time.keys())])
     #target and non-target
@@ -314,11 +377,9 @@ if __name__ == "__main__":
     plt.plot(epochs_subj.times[times]*1e3, list(acc_time.values()), color='blue', lw=2)
     plt.xlabel("ms")
     plt.ylabel("Accuracy")
-    plt.title("Accuracy on time for all samples")
+    plt.title("Accuracy on time" + spec)
     plt.grid()
     plt.show()
-
-
 
 
     #plot FRMS
