@@ -1,15 +1,9 @@
 #%%
 
 import copy
-from re import T
 import numpy as np
-import matplotlib.pyplot as plt
-import scipy.sparse.linalg
 
-
-import mne
 from moabb.datasets import BI2013a
-
 
 from preprocessing.power import field_root_mean_square, plot_fmrs
 from preprocessing.data_processing import get_clean_epochs, \

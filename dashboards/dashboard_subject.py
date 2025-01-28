@@ -1,11 +1,13 @@
 #%%
 import sys
 import os
+
+import mne
 sys.path.append(os.path.abspath(".."))
 
-from io import BytesIO
 import panel as pn
 import numpy as np
+import mne
 from moabb.datasets import BI2013a
 
 from preprocessing.power import FRMS
@@ -13,7 +15,7 @@ from preprocessing.data_processing import get_clean_epochs, Lagger
 from preprocessing.data_processing_iterative import AltFilters
 
 
-def dash_peaks_tg_ntg(epochs_tg, epochs_ntg, subj = None, session = None, p = None):
+def dash_peaks_tg_ntg(epochs_tg, epochs_ntg, spec, avg_ERP = True):
     """
         Creates dashboard for peak extraction from FRMS of average Target and FRMS of average NonTarget
     Params:
@@ -22,9 +24,18 @@ def dash_peaks_tg_ntg(epochs_tg, epochs_ntg, subj = None, session = None, p = No
     """
     figs =[]
 
-    #FRMS of mean evoked potential
-    frms_tg = FRMS(epochs_tg.average())
-    frms_ntg = FRMS(epochs_ntg.average())
+    #FRMS of evoked potentials or mean evoked potential
+    if avg_ERP:
+        e_tg = epochs_tg.average()
+        e_ntg = epochs_tg.average()
+        addtitle = "Average "
+    else:
+        e_tg = epochs_tg
+        e_ntg = epochs_ntg
+        addtitle = ""
+
+    frms_tg = FRMS(e_tg) #epochs_tg.average()
+    frms_ntg = FRMS(e_ntg) #epochs_ntg.average()
     
     # Determine shared y-limits for trimmed mean plots
     trim_mean_min = min(np.min(frms_tg.trim_mean_frms), np.min(frms_ntg.trim_mean_frms))
@@ -65,7 +76,7 @@ def dash_peaks_tg_ntg(epochs_tg, epochs_ntg, subj = None, session = None, p = No
 
     mpls = [pn.pane.Matplotlib(f, dpi=144, tight=True) for f in figs]
 
-    title = pn.pane.Markdown("# FRMS of Average Target and Average Non Target subject #{}, session #{}, p Filter = {}".format(subj, session, p), align="center")
+    title = pn.pane.Markdown("# FRMS of {}Target and {}Non Target {}".format(addtitle, addtitle, spec), align="center")
 
     # Arrange plots in a grid
     dashboard = pn.GridSpec(sizing_mode='stretch_both')
@@ -85,11 +96,11 @@ def dash_peaks_tg_ntg(epochs_tg, epochs_ntg, subj = None, session = None, p = No
     )
 
     #save
-    dash_imgs_path = os.path.join(os.path.dirname(__file__), '../dashboards_imgs')
+    dash_imgs_path = os.path.join(os.getcwd(), 'dashboards_imgs')
     #verify if folder exists, create otherwise
     os.makedirs(dash_imgs_path, exist_ok=True)
     # Filepath for the image
-    image_path = os.path.join(dash_imgs_path, 'subj{}sess{}p{}.html'.format(subj, session, p))
+    image_path = os.path.join(dash_imgs_path, '{}.html'.format(spec))
 
     layout.save(image_path)
     #layout.show()
@@ -122,26 +133,74 @@ def main():
         dash_peaks_tg_ntg(lag_corrected_epochs_tg, lag_corrected_epochs_ntg, subj=subj)
 
 def main_per_session():
+    #this one lags an then filters
+
     """
     Do dashboard for a single session for a subject.
     """
     dataset=BI2013a()
-    subj = 2
+    subj = 1
     session = "0"
     p = 10
+    lag_correction = True
+
     epochs = get_clean_epochs(dataset, subjects_list=[subj])
     epochs = epochs[epochs.metadata.session.values == session]
 
-    alt_filter = AltFilters(epochs, p = p)
-    filtered_epochs, _ = alt_filter.fit_and_apply(class_="Target", plot_it=False)
-    #Average filtered and lag-corrected target FRMS 
-    lagger = Lagger(filtered_epochs["Target"])
-    lag_corrected_epochs_tg = lagger.compute_and_correct_lags()
+    if lag_correction:
+        #lag-corrected target FRMS 
+        lagger = Lagger(epochs["Target"])
+        epochs_tg = lagger.compute_and_correct_lags()
+    
+        #lag-corrected non-target FRMS 
+        lagger = Lagger(epochs["NonTarget"])
+        epochs_ntg = lagger.compute_and_correct_lags()
+        lag_correction = "BeforeFilt"
+        
+        epochs = mne.concatenate_epochs([epochs_tg, epochs_ntg])
 
-    #Average filtered and lag-corrected non-target FRMS 
-    lagger = Lagger(filtered_epochs["NonTarget"])
-    lag_corrected_epochs_ntg = lagger.compute_and_correct_lags()
-    dash_peaks_tg_ntg(lag_corrected_epochs_tg, lag_corrected_epochs_ntg, subj = subj, session = session, p = p)
+    spec = "subj{}_sess{}_p{}_lag{}".format(subj, session, p, lag_correction)
+
+    if p: #Filter
+        alt_filter = AltFilters(epochs, p = p)
+        epochs, _ = alt_filter.fit_and_apply(class_="Target", plot_it=False)
+
+    dash_peaks_tg_ntg(epochs["Target"], epochs["NonTarget"], spec, avg_ERP=False)
+
+# def main_per_session():
+# #this one filters and then lags
+#     """
+#     Do dashboard for a single session for a subject.
+#     """
+#     dataset=BI2013a()
+#     subj = 2
+#     session = "0"
+#     p = 10
+#     lag_correction = True
+
+#     epochs = get_clean_epochs(dataset, subjects_list=[subj])
+#     epochs = epochs[epochs.metadata.session.values == session]
+
+#     if p: #Filter
+#         alt_filter = AltFilters(epochs, p = p)
+#         epochs, _ = alt_filter.fit_and_apply(class_="Target", plot_it=False)
+
+#     epochs_tg = epochs["Target"]
+#     epochs_ntg = epochs["NonTarget"]
+
+#     if lag_correction:
+#         #lag-corrected target FRMS 
+#         lagger = Lagger(epochs_tg)
+#         epochs_tg = lagger.compute_and_correct_lags()
+    
+#         #lag-corrected non-target FRMS 
+#         lagger = Lagger(epochs_ntg)
+#         epochs_ntg = lagger.compute_and_correct_lags()    
+#         lag_correction = "AfterFilt"
+
+#     spec = "subj{}_sess{}_p{}_lag{}".format(subj, session, p, lag_correction)
+
+#     dash_peaks_tg_ntg(epochs_tg, epochs_ntg, spec)
 
 if __name__ == "__main__":
    # stuff only to run when not called via 'import' here

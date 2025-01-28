@@ -261,7 +261,7 @@ class FRMS:
         return fig
 
 
-    def peaks_idx(self, subtract_frms=None, t_interval = 70, thr_per = 0.25, show = False, smooth = False):
+    def peaks_idx(self, subtract_frms=None, t_interval = 70, thr_per = 0.45, show = False, smooth = False):
 
         """
         Get peaks idx of mean FRMS 

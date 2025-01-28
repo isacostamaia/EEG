@@ -166,7 +166,7 @@ def scaled_df(df):
             
     """
     #stack the flattened ERP into a feature matrix
-    X = np.vstack(df['ERP'].values)  # Shape: (n_samples, 16)
+    X = np.vstack(df['ERP'].values)  # Shape: (n_samples, n_channels) (TODO review)
     
     #normalize the feature matrix
     scaler = StandardScaler()

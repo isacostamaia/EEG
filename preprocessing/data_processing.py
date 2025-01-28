@@ -1,4 +1,5 @@
-from doctest import run_docstring_examples
+#%%
+
 import math
 import copy
 
@@ -96,11 +97,17 @@ class Filter:
 
         epochs_data = self.epochs.get_data()*1e6 #n_epochs x n_channels x n_times using epochs from all classes
         X_bar_class = self.epochs[class_].average().get_data()*1e6
-        
+
+        #recenter data so each epoch has zero row mean
+        # Compute the mean across time samples for each channel in each epoch
+        mean_per_channel = np.mean(epochs_data, axis=2, keepdims=True)  # Shape will be (n_epochs, N, 1)
+        #Subtract the mean from each corresponding channel in the epoch
+        recentered_data = epochs_data - mean_per_channel 
+
         if self.spatial:
-            covs = np.stack([e_i @ e_i.T / e_i.shape[-1] for e_i in epochs_data])  # Spatial filter case #n_epochs x n_channels x n_channels if spatial
+            covs = np.stack([e_i @ e_i.T / e_i.shape[-1] for e_i in recentered_data])  # Spatial filter case #n_epochs x n_channels x n_channels if spatial
         else:
-            covs = np.stack([e_i.T @ e_i / e_i.shape[0] for e_i in epochs_data])  # Temporal filter case
+            covs = np.stack([e_i.T @ e_i / e_i.shape[0] for e_i in recentered_data])  # Temporal filter case
  
         Cs = np.mean(covs, axis=0) #n_channels x n_channels (1.12) if spatial
         
@@ -281,7 +288,7 @@ class Lagger:
                 lagged_e_is = self.__lagged_epochs(e_i) #lags between -E and +E
                 
                 if similarity == "covariance":
-                    sim = np.array([(1/l_ei.get_data().shape[-1])*np.matrix.trace(l_ei.get_data()@avg_epochs_m1.T) for l_ei in lagged_e_is]).ravel()
+                    sim = np.array([np.matrix.trace(l_ei.get_data()@avg_epochs_m1.T) for l_ei in lagged_e_is]).ravel()
                 elif similarity == "correlation":
                     sim = np.array([np.corrcoef(l_ei.get_data()[0], avg_epochs_m1)[0,1] for l_ei in lagged_e_is])
                 else:
@@ -334,3 +341,5 @@ class Lagger:
         corrected_epochs = self.correct_lags(self.lags_list)
         return corrected_epochs
 
+
+# %%
